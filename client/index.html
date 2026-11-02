@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>РУБЕЖ — оборона 1987</title>
+<meta name="description" content="Tower defence в духе стратегий конца 90-х: Ташкент, 1987 год, пси-орден наступает. Одиночная игра и кооператив на двоих.">
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="style.css">
+<!--INLINE_CSS-->
+<script type="importmap">{ "imports": { "three": "/vendor/three.module.js" } }</script>
+</head>
+<body>
+<div id="app">
+  <div id="view">
+    <canvas id="scene"></canvas>
+    <canvas id="overlay"></canvas>
+    <header id="hud" class="hidden">
+      <div class="hud-cell hud-wave"><span class="lbl">Волна</span><b id="hud-wave">0 / 6</b></div>
+      <div class="hud-cell hud-timer" id="hud-timer"></div>
+      <div class="hud-cell hud-hq"><span class="lbl">Штаб</span><div class="hqbar"><i id="hud-hq"></i></div></div>
+      <div class="hud-players" id="hud-players"></div>
+    </header>
+    <div id="eva"></div>
+    <div id="hint" class="hidden"></div>
+  </div>
+
+  <aside id="sidebar" class="hidden">
+    <div class="sb-radar">
+      <div class="bezel">
+        <canvas id="radar" width="216" height="140"></canvas>
+        <div id="radar-off">нет энергии</div>
+      </div>
+    </div>
+    <div class="sb-credits"><span class="lbl">Кредиты</span><span id="credits">0</span></div>
+    <div class="sb-body">
+      <div class="powerbar" id="powerbar" title="Энергия">
+        <div class="pw-track"><div class="pw-fill" id="pw-fill"></div><div class="pw-use" id="pw-use"></div></div>
+      </div>
+      <div class="sb-main">
+        <div class="sb-title">Строительство</div>
+        <div id="cameos"></div>
+        <div id="selpanel" class="hidden"></div>
+        <div class="sb-tip" id="sb-tip"><div class="tt">Совет штаба</div><div id="tip-text"></div></div>
+        <div class="sb-info" id="sb-info">
+          <div class="ir"><span>Энергия</span><b id="i-power">0 / 0</b></div>
+          <div class="ir"><span>Уничтожено</span><b id="i-kills">0</b></div>
+          <div class="ir"><span>Доход</span><b id="i-income">+3 кр./с</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="sb-buttons">
+      <button id="btn-wave" class="sbbtn" title="Пробел">Волна сейчас</button>
+      <button id="btn-ping" class="sbbtn" title="Клавиша Q, затем клик по карте">Метка</button>
+      <button id="btn-menu" class="sbbtn" title="Esc">Меню</button>
+    </div>
+  </aside>
+
+  <div id="tooltip" class="hidden"></div>
+
+  <!-- главное меню -->
+  <section id="menu" class="screen">
+    <div class="menu-box">
+      <div class="logo">
+        <div class="logo-year">Ташкент · 1987</div>
+        <h1>РУБЕЖ</h1>
+        <div class="logo-sub">Оборона против Ордена Третьего Глаза</div>
+      </div>
+      <label class="field"><span>Позывной командира</span><input id="in-name" maxlength="18" placeholder="Командир"></label>
+      <button class="btn primary" id="btn-solo">Одиночная игра</button>
+      <div class="mp-block" id="mp-block">
+        <button class="btn" id="btn-create">Создать комнату на двоих</button>
+        <div class="join-row">
+          <input id="in-code" maxlength="4" placeholder="Код">
+          <button class="btn" id="btn-join">Войти</button>
+        </div>
+      </div>
+      <div class="mp-note hidden" id="mp-note">Кооператив работает на сайте игры, здесь — одиночная партия.</div>
+      <div class="menu-err" id="menu-err"></div>
+      <div class="menu-foot">Мышь: строить и выбирать · Колесо: приближение · Правая кнопка или WASD: двигать карту</div>
+    </div>
+  </section>
+
+  <!-- лобби -->
+  <section id="lobby" class="screen hidden">
+    <div class="menu-box">
+      <div class="lobby-head">
+        <div class="lbl">Комната</div>
+        <div class="code" id="lobby-code">----</div>
+        <button class="btn small" id="btn-copy">Скопировать ссылку</button>
+      </div>
+      <div class="lobby-players" id="lobby-players"></div>
+      <div class="lobby-hint" id="lobby-hint">Пошлите другу ссылку или код комнаты.</div>
+      <button class="btn" id="btn-ready">Готов</button>
+      <button class="btn primary" id="btn-start">Начать бой</button>
+      <button class="btn ghost" id="btn-leave">Выйти</button>
+      <div class="menu-err" id="lobby-err"></div>
+    </div>
+  </section>
+
+  <!-- брифинг -->
+  <section id="briefing" class="screen hidden">
+    <div class="crt">
+      <div class="crt-screen">
+        <div class="crt-head"><span class="rec"></span>Штаб Коалиции · канал 7</div>
+        <div class="crt-face" id="crt-face"></div>
+        <div class="crt-text" id="crt-text"></div>
+      </div>
+      <div class="crt-panel"><span class="knob"></span><span class="knob"></span><span class="crt-brand">ЭЛЕКТРОН</span></div>
+      <button class="btn primary" id="btn-brief">К бою</button>
+    </div>
+  </section>
+
+  <!-- итоги -->
+  <section id="endscreen" class="screen hidden">
+    <div class="menu-box end-box">
+      <h2 id="end-title">Победа</h2>
+      <div class="end-sub" id="end-sub"></div>
+      <div class="end-stats" id="end-stats"></div>
+      <button class="btn primary" id="btn-again">Ещё раз</button>
+      <button class="btn ghost" id="btn-tomenu">В меню</button>
+    </div>
+  </section>
+
+  <!-- меню паузы -->
+  <section id="pausemenu" class="screen hidden">
+    <div class="menu-box">
+      <h2>Меню</h2>
+      <button class="btn primary" id="btn-resume">Продолжить</button>
+      <label class="toggle"><input type="checkbox" id="opt-sfx" checked><span>Звуки</span></label>
+      <label class="toggle"><input type="checkbox" id="opt-music" checked><span>Музыка</span></label>
+      <label class="toggle"><input type="checkbox" id="opt-voice" checked><span>Голос штаба</span></label>
+      <button class="btn ghost" id="btn-quit">Выйти в главное меню</button>
+    </div>
+  </section>
+
+  <div id="rotate" class="screen hidden"><div class="menu-box">Поверните телефон горизонтально — так видно всю карту.</div></div>
+  <div id="loading" class="screen"><div class="loading-text">Связь со штабом…</div></div>
+</div>
+<script type="module" src="main.js"></script>
+<!--INLINE_JS-->
+</body>
+</html>

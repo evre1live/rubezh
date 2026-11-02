@@ -1,0 +1,30 @@
+{
+  "name": "rubezh",
+  "version": "1.0.0",
+  "description": "РУБЕЖ — tower defence в духе стратегий конца 90-х, одиночная игра и кооператив",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "build": "node tools/build.js",
+    "test": "node test/balance.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "three": "^0.160.0",
+    "ws": "^8.22.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2",
+    "@fontsource/oswald": "^5.3.0",
+    "@fontsource/pt-mono": "^5.3.0",
+    "@fontsource/russo-one": "^5.3.0"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  }
+}
