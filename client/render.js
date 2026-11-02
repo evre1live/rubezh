@@ -12,7 +12,7 @@ import * as M from './models.js';
 import { hasAsset, instance, fitBox } from './assets.js';
 
 const E = 5;          // поля вокруг карты (клетки)
-const S = 48;         // пикселей текстуры на клетку
+const S = 96;         // пикселей текстуры на клетку
 const DISK_Y = 1.35;
 const ENV_I = 0.32; // сила отражений окружения у материалов
 export function tune(root) {
@@ -105,7 +105,8 @@ const COL = {
 };
 
 export class Renderer {
-  constructor(canvas, overlay) {
+  constructor(canvas, overlay, textures = {}) {
+    this.tex = textures;
     this.canvas = canvas; this.overlay = overlay; this.octx = overlay.getContext('2d');
     this.r = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -208,68 +209,109 @@ export class Renderer {
     const x = c.getContext('2d');
     const R = rng(7);
     const px = v => (v + E) * S;
+    const T = this.tex || {};
+    // узор из текстуры: repeatTiles — сколько клеток на один повтор
+    const pattern = (img, repeatTiles) => {
+      const p = x.createPattern(img, 'repeat');
+      const k = repeatTiles * S / img.width;
+      p.setTransform(new DOMMatrix([k, 0, 0, k, 0, 0]));
+      return p;
+    };
+    // слой с формой: рисуем маску, потом заливаем её текстурой
+    const layer = (drawMask, fill) => {
+      const l = document.createElement('canvas'); l.width = W; l.height = H;
+      const g = l.getContext('2d');
+      drawMask(g);
+      g.globalCompositeOperation = 'source-in';
+      g.fillStyle = fill; g.fillRect(0, 0, W, H);
+      x.drawImage(l, 0, 0);
+    };
+    const pts = [[-E, MAP.path[0][1]], ...MAP.path];
+    const roadPath = (g, w) => {
+      g.strokeStyle = '#000'; g.lineWidth = w * S; g.lineJoin = 'miter'; g.lineCap = 'butt';
+      g.beginPath(); pts.forEach(([a, b], i) => i ? g.lineTo(px(a), px(b)) : g.moveTo(px(a), px(b))); g.stroke();
+    };
+
     // трава
-    x.fillStyle = '#6b9543'; x.fillRect(0, 0, W, H);
-    const greens = ['#7aa34c', '#5c8738', '#86ad55', '#64903d', '#97a656', '#557f33'];
-    for (let i = 0; i < 4200; i++) {
-      x.globalAlpha = 0.06 + R() * 0.12;
-      x.fillStyle = greens[(R() * greens.length) | 0];
-      x.beginPath(); x.arc(R() * W, R() * H, 3 + R() * 16, 0, Math.PI * 2); x.fill();
+    if (T.grass) {
+      x.fillStyle = pattern(T.grass, 2.6); x.fillRect(0, 0, W, H);
+      // крупные пятна, чтобы не было видно повтора
+      for (let i = 0; i < 260; i++) {
+        x.globalAlpha = 0.05 + R() * 0.08;
+        x.fillStyle = ['#2f4a14', '#a69a4c', '#55702a', '#c3b06a'][(R() * 4) | 0];
+        x.beginPath(); x.ellipse(R() * W, R() * H, S * (0.6 + R() * 2.2), S * (0.4 + R() * 1.4), R() * 3, 0, Math.PI * 2); x.fill();
+      }
+      x.globalAlpha = 1;
+    } else {
+      x.fillStyle = '#6b9543'; x.fillRect(0, 0, W, H);
+      const greens = ['#7aa34c', '#5c8738', '#86ad55', '#64903d', '#97a656', '#557f33'];
+      for (let i = 0; i < 4200; i++) {
+        x.globalAlpha = 0.06 + R() * 0.12; x.fillStyle = greens[(R() * greens.length) | 0];
+        x.beginPath(); x.arc(R() * W, R() * H, (3 + R() * 16) * S / 48, 0, Math.PI * 2); x.fill();
+      }
+      x.globalAlpha = 1;
     }
-    for (let i = 0; i < 120; i++) {
-      x.globalAlpha = 0.12 + R() * 0.15; x.fillStyle = R() < 0.5 ? '#8d7c55' : '#7a6c4a';
-      x.beginPath(); x.ellipse(R() * W, R() * H, 10 + R() * 40, 6 + R() * 24, R() * 3, 0, Math.PI * 2); x.fill();
+    // утоптанная земля и тени у домов
+    for (let i = 0; i < 70; i++) {
+      x.globalAlpha = 0.08 + R() * 0.12; x.fillStyle = R() < 0.5 ? '#8d7c55' : '#6f6346';
+      x.beginPath(); x.ellipse(R() * W, R() * H, S * (0.2 + R() * 0.8), S * (0.15 + R() * 0.5), R() * 3, 0, Math.PI * 2); x.fill();
     }
     x.globalAlpha = 1;
-    // площадь штаба и телебашни
-    const plaza = (x0, y0, w, h) => {
-      x.fillStyle = '#a19c8f'; x.fillRect(px(x0), px(y0), w * S, h * S);
-      x.strokeStyle = '#7d796f'; x.lineWidth = 2;
-      for (let i = 0; i <= w * 2; i++) { x.beginPath(); x.moveTo(px(x0) + i * S / 2, px(y0)); x.lineTo(px(x0) + i * S / 2, px(y0 + h)); x.stroke(); }
-      for (let i = 0; i <= h * 2; i++) { x.beginPath(); x.moveTo(px(x0), px(y0) + i * S / 2); x.lineTo(px(x0 + w), px(y0) + i * S / 2); x.stroke(); }
-    };
-    plaza(MAP.hq.x - 0.3, MAP.hq.y - 0.3, MAP.hq.w + 0.6, MAP.hq.h + 0.6);
-    x.save(); x.strokeStyle = '#e0b83a'; x.lineWidth = 5; x.setLineDash([14, 10]);
-    x.strokeRect(px(MAP.hq.x - 0.25), px(MAP.hq.y - 0.25), (MAP.hq.w + 0.5) * S, (MAP.hq.h + 0.5) * S); x.restore();
-    const tv = MAP.decor.find(d => d.kind === 'tvtower');
-    if (tv) { x.fillStyle = '#aaa596'; x.beginPath(); x.arc(px(tv.x + 0.5), px(tv.y + 0.5), S * 0.75, 0, Math.PI * 2); x.fill(); }
-    for (const d of MAP.decor) if (d.kind === 'house') { x.fillStyle = 'rgba(70,66,58,0.55)'; x.fillRect(px(d.x) - 4, px(d.y) - 4, d.w * S + 8, d.h * S + 8); }
-    // дорога: тротуар, асфальт, разметка
-    const pts = [[-E, MAP.path[0][1]], ...MAP.path];
-    const road = (w, color) => {
-      x.strokeStyle = color; x.lineWidth = w * S; x.lineJoin = 'miter'; x.lineCap = 'butt';
-      x.beginPath(); pts.forEach(([a, b], i) => i ? x.lineTo(px(a), px(b)) : x.moveTo(px(a), px(b))); x.stroke();
-    };
-    road(1.42, '#6f6b62'); road(1.34, '#b3ad9e'); road(1.02, '#3f4144'); road(0.96, '#47494c');
-    for (let i = 0; i < 2600; i++) {
-      const d = R() * (MAP.path.length + 8);
-      const seg = Math.min(pts.length - 2, Math.floor(R() * (pts.length - 1)));
-      const [ax, ay] = pts[seg], [bx, by] = pts[seg + 1];
-      const t = R();
-      const off = (R() - 0.5) * 0.9;
-      const len = Math.hypot(bx - ax, by - ay) || 1;
-      const nx = -(by - ay) / len, ny = (bx - ax) / len;
-      x.fillStyle = R() < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.12)';
-      x.fillRect(px(ax + (bx - ax) * t + nx * off), px(ay + (by - ay) * t + ny * off), 2 + d % 3, 2);
+    for (const d of MAP.decor) if (d.kind === 'house') {
+      x.fillStyle = 'rgba(40,38,30,0.35)'; x.fillRect(px(d.x) - S * 0.12, px(d.y) - S * 0.12, d.w * S + S * 0.24, d.h * S + S * 0.24);
     }
-    x.save(); x.strokeStyle = '#d9c35a'; x.lineWidth = 3; x.setLineDash([16, 16]);
+    // площади: штаб и телебашня — плитка
+    const pave = T.paving ? pattern(T.paving, 1.4) : '#a19c8f';
+    layer(g => {
+      g.fillStyle = '#000';
+      g.fillRect(px(MAP.hq.x - 0.35), px(MAP.hq.y - 0.35), (MAP.hq.w + 0.7) * S, (MAP.hq.h + 0.7) * S);
+      const tv = MAP.decor.find(d => d.kind === 'tvtower');
+      if (tv) { g.beginPath(); g.arc(px(tv.x + 0.5), px(tv.y + 0.5), S * 0.8, 0, Math.PI * 2); g.fill(); }
+      for (const d of MAP.decor) if (d.kind === 'house') g.fillRect(px(d.x) - S * 0.08, px(d.y) - S * 0.08, d.w * S + S * 0.16, d.h * S + S * 0.16);
+    }, pave);
+    x.save(); x.strokeStyle = '#e0b83a'; x.lineWidth = S * 0.08; x.setLineDash([S * 0.3, S * 0.2]);
+    x.strokeRect(px(MAP.hq.x - 0.25), px(MAP.hq.y - 0.25), (MAP.hq.w + 0.5) * S, (MAP.hq.h + 0.5) * S); x.restore();
+    // дорога: тень бордюра, тротуар из плитки, асфальт
+    x.save(); x.globalAlpha = 0.35; roadPath(x, 1.5); x.restore();
+    layer(g => roadPath(g, 1.36), T.paving ? pattern(T.paving, 1.1) : '#b3ad9e');
+    layer(g => roadPath(g, 1.04), '#2b2c2e');
+    layer(g => roadPath(g, 0.98), T.asphalt ? pattern(T.asphalt, 1.6) : '#47494c');
+    // заплатки и тёмные пятна на асфальте
+    for (let i = 0; i < 120; i++) {
+      const seg = Math.floor(R() * (pts.length - 1));
+      const [ax, ay] = pts[seg], [bx, by] = pts[seg + 1];
+      const t = R(), len = Math.hypot(bx - ax, by - ay) || 1;
+      const nx = -(by - ay) / len, ny = (bx - ax) / len, off = (R() - 0.5) * 0.7;
+      x.globalAlpha = 0.1 + R() * 0.15; x.fillStyle = R() < 0.6 ? '#1c1c1d' : '#5a5a5c';
+      x.beginPath(); x.ellipse(px(ax + (bx - ax) * t + nx * off), px(ay + (by - ay) * t + ny * off), S * (0.05 + R() * 0.18), S * (0.04 + R() * 0.1), R() * 3, 0, Math.PI * 2); x.fill();
+    }
+    x.globalAlpha = 1;
+    // разметка: прерывистая осевая и переходы у поворотов
+    x.save(); x.strokeStyle = 'rgba(230,205,95,0.85)'; x.lineWidth = S * 0.05; x.setLineDash([S * 0.32, S * 0.32]);
     x.beginPath(); pts.forEach(([a, b], i) => i ? x.lineTo(px(a), px(b)) : x.moveTo(px(a), px(b))); x.stroke(); x.restore();
+    x.fillStyle = 'rgba(235,235,225,0.8)';
+    for (let i = 1; i < pts.length - 1; i += 2) {
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+      const len = Math.hypot(bx - ax, by - ay), dx = (bx - ax) / len, dy = (by - ay) / len;
+      const cx = ax + dx * 1.1, cy = ay + dy * 1.1;
+      for (let k = -3; k <= 3; k++) {
+        const ox = -dy * k * 0.13, oy = dx * k * 0.13;
+        x.save(); x.translate(px(cx + ox), px(cy + oy)); x.rotate(Math.atan2(dy, dx));
+        x.fillRect(-S * 0.14, -S * 0.04, S * 0.28, S * 0.08); x.restore();
+      }
+    }
     // пси-заражение у маяка
     const [sx, sy] = MAP.spawn;
     const g = x.createRadialGradient(px(sx - 0.9), px(sy), 0, px(sx - 0.9), px(sy), S * 4.2);
     g.addColorStop(0, 'rgba(120,40,190,0.75)'); g.addColorStop(0.5, 'rgba(90,30,140,0.35)'); g.addColorStop(1, 'rgba(60,20,90,0)');
     x.fillStyle = g; x.fillRect(0, 0, W, H);
-    x.strokeStyle = 'rgba(190,120,255,0.55)'; x.lineWidth = 2;
+    x.strokeStyle = 'rgba(190,120,255,0.55)'; x.lineWidth = S / 24;
     for (let i = 0; i < 14; i++) {
       let cx = px(sx - 0.9), cy = px(sy), a = R() * Math.PI * 2;
       x.beginPath(); x.moveTo(cx, cy);
       for (let k = 0; k < 6; k++) { a += (R() - 0.5) * 1.2; cx += Math.cos(a) * S * 0.45; cy += Math.sin(a) * S * 0.45; x.lineTo(cx, cy); }
       x.stroke();
     }
-    // мелкая зернистость
-    const img = x.getImageData(0, 0, W, H); const dd = img.data;
-    for (let i = 0; i < dd.length; i += 4) { const n = (R() - 0.5) * 14; dd[i] += n; dd[i + 1] += n; dd[i + 2] += n; }
-    x.putImageData(img, 0, 0);
     // затемнение за пределами поля
     x.fillStyle = 'rgba(6,10,8,0.30)';
     x.beginPath(); x.rect(0, 0, W, H); x.rect(px(0), px(0), MAP.w * S, MAP.h * S); x.fill('evenodd');
@@ -278,7 +320,7 @@ export class Renderer {
     x.fillStyle = fade(0, H, 0, H - E * S * 0.9); x.fillRect(0, H - E * S, W, E * S);
     x.fillStyle = fade(W, 0, W - E * S * 0.9, 0); x.fillRect(W - E * S, 0, E * S, H);
     x.fillStyle = fade(0, 0, E * S * 0.6, 0); x.fillRect(0, 0, E * S, H);
-    x.strokeStyle = 'rgba(255,255,255,0.12)'; x.lineWidth = 2; x.strokeRect(px(0), px(0), MAP.w * S, MAP.h * S);
+    x.strokeStyle = 'rgba(255,255,255,0.12)'; x.lineWidth = S / 24; x.strokeRect(px(0), px(0), MAP.w * S, MAP.h * S);
     return c;
   }
 
@@ -288,11 +330,11 @@ export class Renderer {
     const geo = new THREE.PlaneGeometry(MAP.w + E * 2, MAP.h + E * 2);
     const detail = this.detailNormal();
     detail.repeat.set((MAP.w + E * 2) * 1.5, (MAP.h + E * 2) * 1.5);
-    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, normalMap: detail, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.95, envMapIntensity: 0.25 }));
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, normalMap: detail, normalScale: new THREE.Vector2(0.45, 0.45), roughness: 0.95, envMapIntensity: 0.25 }));
     m.rotation.x = -Math.PI / 2; m.position.set(MAP.w / 2, 0, MAP.h / 2); m.receiveShadow = true;
     this.scene.add(m);
     this.addCurbs();
-    this.addGrass();
+    if (!this.tex.grass) this.addGrass();
     // сетка для стройки
     this.gridCanvas = document.createElement('canvas'); this.gridCanvas.width = MAP.w * 32; this.gridCanvas.height = MAP.h * 32;
     this.gridTex = new THREE.CanvasTexture(this.gridCanvas);

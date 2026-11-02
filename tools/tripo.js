@@ -54,16 +54,32 @@ function pickOutput(out) {
   return out.pbr_model || out.model || out.base_model;
 }
 
+async function upload(file) {
+  const fd = new FormData();
+  fd.append('file', new Blob([fs.readFileSync(path.join(ROOT, file))], { type: 'image/png' }), path.basename(file));
+  const r = await fetch(API + '/upload', { method: 'POST', headers: { Authorization: `Bearer ${KEY}` }, body: fd });
+  const j = await r.json();
+  if (j.code !== 0) throw new Error(`upload: ${j.code} ${j.message || ''}`);
+  return j.data.image_token || j.data.file_token;
+}
+
 async function gen(m) {
-  const body = {
+  const useImage = m.image && !args.includes('--text');
+  const body = useImage ? {
+    type: 'image_to_model',
+    model_version: VERSION,
+    file: { type: 'png', file_token: await upload(m.image) },
+  } : {
     type: 'text_to_model',
     model_version: VERSION,
     prompt: `${m.prompt}. ${spec.style}`.slice(0, 1024),
     negative_prompt: spec.negative.slice(0, 255),
+  };
+  Object.assign(body, {
     texture: true, pbr: true,
     texture_quality: m.group === 'city' ? 'standard' : 'detailed',
     auto_size: false,
-  };
+  });
   if (m.faces) body.face_limit = m.faces;
   const id = await createTask(body);
   state[m.id] = { ...(state[m.id] || {}), model_task: id, prompt: m.prompt, version: VERSION, at: new Date().toISOString() };

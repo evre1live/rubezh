@@ -26,7 +26,15 @@ html = html
   .replace('<!--INLINE_CSS-->', () => `<style>\n${fonts}\n${css}</style>`)
   .replace('<!--INLINE_JS-->', () => `<script>window.RUBEZH_SOLO = true;</script>\n<script>${js}</script>`);
 
-fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });
-const out = path.join(ROOT, 'dist', 'rubezh-solo.html');
+const DIST = path.join(ROOT, 'dist');
+fs.rmSync(DIST, { recursive: true, force: true });
+fs.mkdirSync(DIST, { recursive: true });
+const out = path.join(DIST, 'rubezh-solo.html');
 fs.writeFileSync(out, html);
-console.log(`${path.relative(ROOT, out)}: ${(html.length / 1024).toFixed(0)} КБ`);
+fs.cpSync(path.join(ROOT, 'assets'), path.join(DIST, 'assets'), { recursive: true });
+const files = [];
+const walk = d => { for (const f of fs.readdirSync(d)) { const p = path.join(d, f); fs.statSync(p).isDirectory() ? walk(p) : files.push(p); } };
+walk(path.join(DIST, 'assets'));
+fs.writeFileSync(path.join(DIST, 'files.json'), JSON.stringify(files.map(f => ({ as: path.relative(DIST, f), path: f })), null, 1));
+const total = files.reduce((a, f) => a + fs.statSync(f).size, 0) + html.length;
+console.log(`${path.relative(ROOT, out)}: ${(html.length / 1024).toFixed(0)} КБ, файлов в assets: ${files.length}, всего ${(total / 1048576).toFixed(1)} МБ`);

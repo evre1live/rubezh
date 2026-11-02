@@ -2,30 +2,167 @@
   "style": "stylized semi-realistic game asset in the style of late-1990s pre-rendered real-time-strategy games, clean readable silhouette, crisp hand-painted PBR textures, slightly saturated colors, Soviet Central Asia 1980s, single isolated object, no ground plane, no background",
   "negative": "text, letters, logo, watermark, ground plane, base platform larger than the object, blurry texture, low detail",
   "models": [
-    { "id": "shkval_base", "group": "tower", "size": 0.95, "fit": "footprint", "prompt": "round reinforced concrete pillbox bunker with a dark horizontal firing slit, a ring of khaki sandbags stacked two high around it, standing on a small square concrete pad, weathered concrete, nothing on the roof" },
-    { "id": "shkval_turret", "group": "tower", "size": 0.42, "fit": "footprint", "prompt": "compact olive-green armored gun turret with one heavy machine gun barrel pointing forward, small armored shield, a red painted stripe, an ammunition box on the side" },
-    { "id": "razryadnik", "group": "tower", "size": 1.75, "fit": "height", "prompt": "tall electric tesla defense tower: square concrete base with a red trim stripe, four dark steel lattice legs leaning inwards to a central iron column wrapped with six polished copper coil rings, a large glowing blue glass sphere on top, retro Soviet sci-fi" },
-    { "id": "nebosvod_base", "group": "tower", "size": 0.95, "fit": "footprint", "prompt": "octagonal concrete anti-aircraft gun platform ringed with khaki sandbags, two green ammunition crates, empty mount in the middle, no gun" },
-    { "id": "nebosvod_turret", "group": "tower", "size": 0.55, "fit": "footprint", "prompt": "olive-green rotating anti-aircraft gun turret with twin long gun barrels raised at 50 degrees, a red stripe, Soviet 1980s military" },
-    { "id": "plant", "group": "tower", "size": 1.0, "fit": "footprint", "prompt": "compact Soviet power plant: beige concrete hall with a flat roof and rows of windows, two short hyperbolic cooling towers, a small fenced transformer yard with insulators, a red stripe along the hall" },
-    { "id": "hq", "group": "tower", "size": 2.1, "fit": "footprint", "prompt": "military command headquarters: two-storey beige concrete building with a red band and a big red star emblem on the facade, a radar dish on a steel mast, radio antennas, a helipad with a yellow circle, sandbag walls, square footprint" },
-
-    { "id": "clone", "group": "enemy", "size": 0.55, "fit": "height", "rig": true, "anim": "walk", "prompt": "full body bald pale clone soldier in a fitted purple and black uniform, glowing green visor band over the eyes, glowing green belt, compact dark rifle on a sling, standing in A-pose, game character" },
-    { "id": "brute", "group": "enemy", "size": 0.9, "fit": "height", "rig": true, "anim": "walk", "prompt": "huge hunched mutant brute, grey-green muscular skin with glowing green veins, purple leather harness across the chest, small head with red eyes, very long arms, standing in A-pose, game character" },
-    { "id": "psi", "group": "enemy", "size": 0.6, "fit": "height", "rig": true, "anim": "walk", "prompt": "psychic cult leader in a long dark purple robe with a high collar, pale bald head, hands glowing violet, standing in A-pose, game character" },
-    { "id": "disk", "group": "enemy", "size": 0.75, "fit": "footprint", "prompt": "small flying saucer drone with a polished violet metal hull, a purple glass dome on top, a ring of green lights around the rim" },
-
-    { "id": "block5", "group": "city", "size": 1, "fit": "box", "prompt": "Soviet five-storey prefabricated concrete panel apartment building, beige panels, rows of windows, balconies, flat roof with small vents and TV antennas, rectangular block" },
-    { "id": "block9", "group": "city", "size": 1, "fit": "box", "prompt": "Soviet nine-storey prefabricated panel apartment tower, light grey panels with blue accents, glazed balconies, flat roof with an elevator machine room and TV antennas" },
-    { "id": "block_long", "group": "city", "size": 1, "fit": "box", "prompt": "long Soviet four-storey panel apartment building with three entrance canopies, terracotta and beige panels, balconies, flat roof" },
-    { "id": "tvtower", "group": "city", "size": 6.4, "fit": "height", "prompt": "tall steel TV tower: three curved lattice steel legs joining into a single slender shaft, a round observation pod halfway up, a red and white striped antenna on top" },
-    { "id": "beacon", "group": "city", "size": 2.6, "fit": "height", "prompt": "alien psychic beacon: dark obsidian pyramid-shaped pylon with a floating purple crystal on top and glowing violet rings, sci-fi" },
-    { "id": "tree_plane", "group": "city", "size": 1.0, "fit": "height", "prompt": "large Central Asian plane tree with a thick trunk and a wide rounded green crown" },
-    { "id": "tree_poplar", "group": "city", "size": 1.3, "fit": "height", "prompt": "tall slender poplar tree with dense green foliage" },
-    { "id": "bush", "group": "city", "size": 0.35, "fit": "height", "prompt": "round green garden bush" },
-    { "id": "car_white", "group": "city", "size": 0.5, "fit": "footprint", "prompt": "boxy 1980s Soviet compact four-door sedan car, white paint, chrome bumpers" },
-    { "id": "car_black", "group": "city", "size": 0.55, "fit": "footprint", "prompt": "large 1980s Soviet sedan car, black paint, chrome grille and bumpers" },
-    { "id": "lamp", "group": "city", "size": 0.55, "fit": "height", "prompt": "Soviet street lamp post with a grey concrete pole, a curved metal arm and a single lamp" },
-    { "id": "kiosk", "group": "city", "size": 0.5, "fit": "height", "prompt": "small Soviet street kiosk with blue painted panels, a glass window and a striped awning" }
+    {
+      "id": "shkval",
+      "group": "tower",
+      "size": 0.98,
+      "fit": "footprint",
+      "image": "art/src/01_shkval.png",
+      "prompt": "fortified machine-gun nest: round concrete pillbox with sandbag ring and olive turret with a heavy machine gun"
+    },
+    {
+      "id": "razryadnik",
+      "group": "tower",
+      "size": 1.75,
+      "fit": "height",
+      "prompt": "tall electric tesla defense tower: square concrete base with a red trim stripe, four dark steel lattice legs leaning inwards to a central iron column wrapped with six polished copper coil rings, a large glowing blue glass sphere on top, retro Soviet sci-fi",
+      "image": "art/src/02_razryadnik.png"
+    },
+    {
+      "id": "nebosvod",
+      "group": "tower",
+      "size": 0.98,
+      "fit": "footprint",
+      "image": "art/src/03_nebosvod.png",
+      "prompt": "anti-aircraft flak battery: octagonal sandbagged concrete platform with an olive twin-barrel gun turret"
+    },
+    {
+      "id": "plant",
+      "group": "tower",
+      "size": 1.0,
+      "fit": "footprint",
+      "prompt": "compact Soviet power plant: beige concrete hall with a flat roof and rows of windows, two short hyperbolic cooling towers, a small fenced transformer yard with insulators, a red stripe along the hall",
+      "image": "art/src/04_power_plant.png"
+    },
+    {
+      "id": "hq",
+      "group": "tower",
+      "size": 2.1,
+      "fit": "footprint",
+      "prompt": "military command headquarters: two-storey beige concrete building with a red band and a big red star emblem on the facade, a radar dish on a steel mast, radio antennas, a helipad with a yellow circle, sandbag walls, square footprint",
+      "image": "art/src/05_headquarters.png"
+    },
+    {
+      "id": "clone",
+      "group": "enemy",
+      "size": 0.55,
+      "fit": "height",
+      "rig": true,
+      "anim": "walk",
+      "prompt": "full body bald pale clone soldier in a fitted purple and black uniform, glowing green visor band over the eyes, glowing green belt, compact dark rifle on a sling, standing in A-pose, game character",
+      "image": "art/src/06_clone.png"
+    },
+    {
+      "id": "brute",
+      "group": "enemy",
+      "size": 0.9,
+      "fit": "height",
+      "rig": true,
+      "anim": "walk",
+      "prompt": "huge hunched mutant brute, grey-green muscular skin with glowing green veins, purple leather harness across the chest, small head with red eyes, very long arms, standing in A-pose, game character",
+      "image": "art/src/07_brute.png"
+    },
+    {
+      "id": "psi",
+      "group": "enemy",
+      "size": 0.6,
+      "fit": "height",
+      "rig": true,
+      "anim": "walk",
+      "prompt": "psychic cult leader in a long dark purple robe with a high collar, pale bald head, hands glowing violet, standing in A-pose, game character",
+      "image": "art/src/09_psychic_leader.png"
+    },
+    {
+      "id": "disk",
+      "group": "enemy",
+      "size": 0.75,
+      "fit": "footprint",
+      "prompt": "small flying saucer drone with a polished violet metal hull, a purple glass dome on top, a ring of green lights around the rim",
+      "image": "art/src/08_disc.png"
+    },
+    {
+      "id": "block5",
+      "group": "city",
+      "size": 1,
+      "fit": "box",
+      "prompt": "Soviet five-storey prefabricated concrete panel apartment building, beige panels, rows of windows, balconies, flat roof with small vents and TV antennas, rectangular block"
+    },
+    {
+      "id": "block9",
+      "group": "city",
+      "size": 1,
+      "fit": "box",
+      "prompt": "Soviet nine-storey prefabricated panel apartment tower, light grey panels with blue accents, glazed balconies, flat roof with an elevator machine room and TV antennas"
+    },
+    {
+      "id": "block_long",
+      "group": "city",
+      "size": 1,
+      "fit": "box",
+      "prompt": "long Soviet four-storey panel apartment building with three entrance canopies, terracotta and beige panels, balconies, flat roof"
+    },
+    {
+      "id": "tvtower",
+      "group": "city",
+      "size": 6.4,
+      "fit": "height",
+      "prompt": "tall steel TV tower: three curved lattice steel legs joining into a single slender shaft, a round observation pod halfway up, a red and white striped antenna on top"
+    },
+    {
+      "id": "beacon",
+      "group": "city",
+      "size": 2.6,
+      "fit": "height",
+      "prompt": "alien psychic beacon: dark obsidian pyramid-shaped pylon with a floating purple crystal on top and glowing violet rings, sci-fi"
+    },
+    {
+      "id": "tree_plane",
+      "group": "city",
+      "size": 1.0,
+      "fit": "height",
+      "prompt": "large Central Asian plane tree with a thick trunk and a wide rounded green crown"
+    },
+    {
+      "id": "tree_poplar",
+      "group": "city",
+      "size": 1.3,
+      "fit": "height",
+      "prompt": "tall slender poplar tree with dense green foliage"
+    },
+    {
+      "id": "bush",
+      "group": "city",
+      "size": 0.35,
+      "fit": "height",
+      "prompt": "round green garden bush"
+    },
+    {
+      "id": "car_white",
+      "group": "city",
+      "size": 0.5,
+      "fit": "footprint",
+      "prompt": "boxy 1980s Soviet compact four-door sedan car, white paint, chrome bumpers"
+    },
+    {
+      "id": "car_black",
+      "group": "city",
+      "size": 0.55,
+      "fit": "footprint",
+      "prompt": "large 1980s Soviet sedan car, black paint, chrome grille and bumpers"
+    },
+    {
+      "id": "lamp",
+      "group": "city",
+      "size": 0.55,
+      "fit": "height",
+      "prompt": "Soviet street lamp post with a grey concrete pole, a curved metal arm and a single lamp"
+    },
+    {
+      "id": "kiosk",
+      "group": "city",
+      "size": 0.5,
+      "fit": "height",
+      "prompt": "small Soviet street kiosk with blue painted panels, a glass window and a striped awning"
+    }
   ]
 }

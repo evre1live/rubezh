@@ -37,6 +37,13 @@ const SAY = {
 };
 const SAY_SOUND = { build_done: 'build', no_money: 'deny', busy: 'deny', low_power: 'alarm', base_attack: 'alarm', captured: 'capture', plant_attack: 'alarm' };
 
+// ---------- картинки ----------
+const UI = 'assets/ui/';
+function loadImage(src) {
+  return new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
+}
+const uiReady = {};
+
 // ---------- состояние ----------
 const sound = new Sound();
 let R = null;
@@ -78,14 +85,14 @@ function eva(text, cls = '') {
 function buildCameos(team) {
   if (cameoTeam === team) return;
   cameoTeam = team;
-  cameoImgs = Renderer.renderCameos(BUILDABLE, team, (k, c) => R.makeStructModel(k, c));
+  cameoImgs = BUILDABLE.every(k => uiReady['cameo_' + k]) ? {} : Renderer.renderCameos(BUILDABLE, team, (k, c) => R.makeStructModel(k, c));
   const wrap = $('cameos');
   wrap.innerHTML = '';
   BUILDABLE.forEach((kind, i) => {
     const d = STRUCTS[kind];
     const b = document.createElement('button');
     b.className = 'cameo'; b.dataset.kind = kind;
-    b.style.backgroundImage = `url(${cameoImgs[kind]})`;
+    b.style.backgroundImage = `url(${uiReady['cameo_' + kind] || cameoImgs[kind]})`;
     b.innerHTML = `<span class="key">${i + 1}</span><span class="cost">${d.cost}</span><span class="nm">${d.short || d.name}</span><span class="clock hidden"></span><span class="ready hidden">Готово</span>`;
     b.addEventListener('click', () => cameoClick(kind));
     b.addEventListener('contextmenu', e => { e.preventDefault(); cameoCancel(kind); });
@@ -365,7 +372,7 @@ function updateHud() {
   $('hud-wave').textContent = `${Math.max(s.wv, s.ph === 'countdown' ? s.wv + 1 : s.wv)} / ${s.nw}`;
   const timer = $('hud-timer');
   if (s.ph === 'countdown') {
-    const pv = s.next.map(([k, n]) => `<span class="pv"><i></i>${ENEMIES[k].name} ×${n}</span>`).join('');
+    const pv = s.next.map(([k, n]) => `<span class="pv"><img src="${UI}enemy_${k}.webp" alt="">${ENEMIES[k].name} ×${n}</span>`).join('');
     timer.innerHTML = `${s.wv === 0 ? 'Первая волна' : 'Следующая волна'} через<span class="t">${fmtTime(s.cd)}</span>${pv}`;
     timer.classList.toggle('alarm', s.cd <= 5);
   } else if (s.ph === 'wave') {
@@ -534,10 +541,19 @@ function showBriefing(onGo) {
     el.innerHTML = escapeHtml(BRIEF.slice(0, i)) + '<span class="cur"></span>';
     if (i >= BRIEF.length) clearInterval(briefTimer);
   }, 18);
+  const intel = $('crt-intel');
+  if (!intel.firstChild) intel.innerHTML = [['clone', 'Клон', 'идут толпой'], ['brute', 'Громила', 'нужен Разрядник'], ['disk', 'Диск', 'нужен Небосвод'], ['psi', 'Пси-ведущий', 'захватывает башни']]
+    .map(([k, n, d]) => `<div class="ic"><img src="${UI}enemy_${k}.webp" alt=""><b>${n}</b><span>${d}</span></div>`).join('');
   $('btn-brief').onclick = () => { clearInterval(briefTimer); sound.init(); sound.play('click'); screen(null); onGo(); };
 }
 function drawGeneral(el) {
   if (el.firstChild) return;
+  const img = new Image();
+  img.src = UI + 'general.webp'; img.alt = 'Генерал';
+  img.onerror = () => { img.remove(); drawGeneralFallback(el); };
+  el.appendChild(img);
+}
+function drawGeneralFallback(el) {
   const c = document.createElement('canvas'); c.width = 112; c.height = 132; el.appendChild(c);
   const g = c.getContext('2d');
   const G = a => `rgba(140,255,150,${a})`;
@@ -647,7 +663,13 @@ async function boot() {
   try { await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 1500))]); } catch {}
   const lt = document.querySelector('.loading-text');
   await loadAssets('assets/', (d, n) => { lt.textContent = `Загрузка моделей: ${d} из ${n}`; });
-  R = new Renderer($('scene'), $('overlay'));
+  lt.textContent = 'Загрузка карты…';
+  const [grass, asphalt, paving, ...ui] = await Promise.all([
+    loadImage('assets/tex/grass.webp'), loadImage('assets/tex/asphalt.webp'), loadImage('assets/tex/paving.webp'),
+    ...BUILDABLE.map(k => loadImage(`${UI}cameo_${k}.webp`)),
+  ]);
+  BUILDABLE.forEach((k, i) => { if (ui[i]) uiReady['cameo_' + k] = ui[i].src; });
+  R = new Renderer($('scene'), $('overlay'), { grass, asphalt, paving });
   R.onSound = n => sound.play(n);
   let q = 'high';
   try { q = localStorage.getItem('rubezh-quality') || 'high'; } catch {}
