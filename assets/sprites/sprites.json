@@ -1,0 +1,94 @@
+{
+ "shkval": {
+  "file": "shkval.webp",
+  "foot": 1,
+  "k": 0.95,
+  "muzzle": [
+   [
+    0.09,
+    0.28
+   ]
+  ]
+ },
+ "razryadnik": {
+  "file": "razryadnik.webp",
+  "foot": 1,
+  "k": 0.86,
+  "muzzle": [
+   [
+    0.5,
+    0.06
+   ]
+  ],
+  "orb": [
+   0.5,
+   0.06
+  ]
+ },
+ "nebosvod": {
+  "file": "nebosvod.webp",
+  "foot": 1,
+  "k": 1.0,
+  "muzzle": [
+   [
+    0.72,
+    0.03
+   ],
+   [
+    0.83,
+    0.04
+   ]
+  ]
+ },
+ "plant": {
+  "file": "plant.webp",
+  "foot": 1,
+  "k": 1.08,
+  "smoke": [
+   [
+    0.48,
+    0.17
+   ],
+   [
+    0.77,
+    0.24
+   ]
+  ]
+ },
+ "hq": {
+  "file": "hq.webp",
+  "foot": 2,
+  "k": 1.32,
+  "blink": [
+   [
+    0.32,
+    0.09
+   ],
+   [
+    0.64,
+    0.02
+   ]
+  ],
+  "lift": 0.32
+ },
+ "clone": {
+  "file": "clone.webp",
+  "height": 0.62,
+  "face": 1
+ },
+ "brute": {
+  "file": "brute.webp",
+  "height": 0.8,
+  "face": 0
+ },
+ "psi": {
+  "file": "psi.webp",
+  "height": 0.66,
+  "face": 0
+ },
+ "disk": {
+  "file": "disk.webp",
+  "width": 0.82,
+  "anchor": 0.5
+ }
+}

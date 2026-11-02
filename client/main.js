@@ -669,7 +669,14 @@ async function boot() {
     ...BUILDABLE.map(k => loadImage(`${UI}cameo_${k}.webp`)),
   ]);
   BUILDABLE.forEach((k, i) => { if (ui[i]) uiReady['cameo_' + k] = ui[i].src; });
-  R = new Renderer($('scene'), $('overlay'), { grass, asphalt, paving });
+  const sprites = {};
+  if (!params.has('nosprites')) {
+    try {
+      const meta = await (await fetch('assets/sprites/sprites.json', { cache: 'no-cache' })).json();
+      await Promise.all(Object.entries(meta).map(async ([k, m]) => { const img = await loadImage('assets/sprites/' + m.file); if (img) sprites[k] = { ...m, img }; }));
+    } catch {}
+  }
+  R = new Renderer($('scene'), $('overlay'), { grass, asphalt, paving, sprites });
   R.onSound = n => sound.play(n);
   let q = 'high';
   try { q = localStorage.getItem('rubezh-quality') || 'high'; } catch {}
