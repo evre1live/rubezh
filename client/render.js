@@ -1,16 +1,48 @@
 // Изометрическая сцена: местность, город, строения, враги, эффекты, полосы здоровья.
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { MAP, STRUCTS, ENEMIES, STRUCT_KINDS, ENEMY_KINDS, RULES, pathPos, laneOffset } from '../sim/data.js';
 import * as M from './models.js';
+import { hasAsset, instance, fitBox } from './assets.js';
 
 const E = 5;          // поля вокруг карты (клетки)
 const S = 48;         // пикселей текстуры на клетку
 const DISK_Y = 1.35;
+const ENV_I = 0.32; // сила отражений окружения у материалов
+export function tune(root) {
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m && m.isMeshStandardMaterial && !m.userData.tuned) { m.envMapIntensity = ENV_I; m.userData.tuned = true; }
+  });
+  return root;
+}
 const ENEMY_SCALE = { clone: 2.0, brute: 1.65, disk: 1.6, psi: 1.9 };
 
 function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
+
+// цветокоррекция после тонмаппинга: насыщенность, контраст, тёплый тон, виньетка
+const GradeShader = {
+  uniforms: { tDiffuse: { value: null }, uSat: { value: 1.12 }, uContrast: { value: 1.06 }, uVig: { value: 0.55 }, uWarm: { value: 0.025 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uSat, uContrast, uVig, uWarm; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv); vec3 col = c.rgb;
+      float l = dot(col, vec3(0.299, 0.587, 0.114));
+      col = mix(vec3(l), col, uSat);
+      col = (col - 0.5) * uContrast + 0.5;
+      col += vec3(uWarm, uWarm * 0.4, -uWarm);
+      vec2 d = vUv - 0.5; col *= 1.0 - uVig * dot(d, d) * 1.5;
+      gl_FragColor = vec4(clamp(col, 0.0, 1.0), c.a);
+    }`,
+};
 
 // ---------- частицы ----------
 class Particles {
@@ -79,11 +111,14 @@ export class Renderer {
     this.r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.r.outputColorSpace = THREE.SRGBColorSpace;
     this.r.toneMapping = THREE.ACESFilmicToneMapping;
-    this.r.toneMappingExposure = 1.22;
+    this.r.toneMappingExposure = 1.0;
     this.r.shadowMap.enabled = true;
     this.r.shadowMap.type = THREE.PCFSoftShadowMap;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x07090b);
+    const pmrem = new THREE.PMREMGenerator(this.r);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(this.r), 0.04).texture;
+    pmrem.dispose();
 
     this.cam = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 300);
     this.camDir = new THREE.Vector3(1, 1.18, 1).normalize();
@@ -119,13 +154,42 @@ export class Renderer {
     this.tileMark.rotation.x = -Math.PI / 2; this.tileMark.position.y = 0.04; this.tileMark.visible = false; this.scene.add(this.tileMark);
     this.ghost = null; this.ghostKind = null;
 
+    this.quality = 'high';
     this.resize();
   }
 
-  // ---------- сцена ----------
+  // ---------- качество картинки ----------
+  setQuality(q) {
+    this.quality = q;
+    if (this.composer) { this.composer.dispose(); this.composer = null; }
+    this.sun.shadow.mapSize.set(q === 'high' ? 4096 : 2048, q === 'high' ? 4096 : 2048);
+    if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; }
+    if (q === 'low') { this.resize(); return; }
+    const dpr = this.r.getPixelRatio();
+    const rt = new THREE.WebGLRenderTarget(this.w * dpr, this.h * dpr, { type: THREE.HalfFloatType, samples: 4 });
+    const c = new EffectComposer(this.r, rt);
+    c.addPass(new RenderPass(this.scene, this.cam));
+    if (q === 'high') {
+      const ao = new GTAOPass(this.scene, this.cam, this.w, this.h);
+      ao.output = GTAOPass.OUTPUT.Default;
+      ao.blendIntensity = 0.85;
+      ao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1, thickness: 1, scale: 1, samples: 12, distanceFallOff: 1 });
+      ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+      c.addPass(ao); this.aoPass = ao;
+    } else this.aoPass = null;
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(this.w, this.h), 0.45, 0.35, 1.05);
+    c.addPass(this.bloom);
+    c.addPass(new OutputPass());
+    this.grade = new ShaderPass(GradeShader);
+    c.addPass(this.grade);
+    this.composer = c;
+    this.resize();
+  }
+
   addLights() {
-    this.scene.add(new THREE.HemisphereLight(0xe2ecff, 0x6a7448, 1.25));
-    const sun = new THREE.DirectionalLight(0xfff0d6, 3.1);
+    this.hemi = new THREE.HemisphereLight(0xe2ecff, 0x6a7448, 0.55);
+    this.scene.add(this.hemi);
+    const sun = new THREE.DirectionalLight(0xfff0d6, 2.7);
     sun.position.set(MAP.w / 2 - 9, 18, MAP.h / 2 - 3);
     sun.target.position.set(MAP.w / 2, 0, MAP.h / 2);
     sun.castShadow = true;
@@ -133,6 +197,7 @@ export class Renderer {
     const sc = sun.shadow.camera; sc.left = -20; sc.right = 20; sc.top = 16; sc.bottom = -16; sc.near = 1; sc.far = 60;
     sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.02;
     this.scene.add(sun, sun.target);
+    this.sun = sun;
     this.flash = new THREE.PointLight(0x9fdcff, 0, 4, 2);
     this.scene.add(this.flash);
   }
@@ -221,9 +286,13 @@ export class Renderer {
     const tex = new THREE.CanvasTexture(this.terrainCanvas);
     tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = this.r.capabilities.getMaxAnisotropy();
     const geo = new THREE.PlaneGeometry(MAP.w + E * 2, MAP.h + E * 2);
-    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }));
+    const detail = this.detailNormal();
+    detail.repeat.set((MAP.w + E * 2) * 1.5, (MAP.h + E * 2) * 1.5);
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, normalMap: detail, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.95, envMapIntensity: 0.25 }));
     m.rotation.x = -Math.PI / 2; m.position.set(MAP.w / 2, 0, MAP.h / 2); m.receiveShadow = true;
     this.scene.add(m);
+    this.addCurbs();
+    this.addGrass();
     // сетка для стройки
     this.gridCanvas = document.createElement('canvas'); this.gridCanvas.width = MAP.w * 32; this.gridCanvas.height = MAP.h * 32;
     this.gridTex = new THREE.CanvasTexture(this.gridCanvas);
@@ -232,14 +301,143 @@ export class Renderer {
     this.grid = gm; this.scene.add(gm);
   }
 
+  // мелкий рельеф земли: карта нормалей из шума
+  detailNormal() {
+    const N = 256, R = rng(19);
+    const h = new Float32Array(N * N);
+    for (let o = 0; o < 4; o++) {
+      const step = 32 >> o, amp = 1 / (o + 1);
+      const grid = [];
+      for (let y = 0; y <= N / step; y++) { grid[y] = []; for (let x = 0; x <= N / step; x++) grid[y][x] = R(); }
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const gx = x / step, gy = y / step, x0 = gx | 0, y0 = gy | 0, fx = gx - x0, fy = gy - y0;
+        const X1 = (x0 + 1) % (N / step), Y1 = (y0 + 1) % (N / step);
+        const a = grid[y0][x0], b = grid[y0][X1], c = grid[Y1][x0], d = grid[Y1][X1];
+        const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+        h[y * N + x] += amp * ((a * (1 - sx) + b * sx) * (1 - sy) + (c * (1 - sx) + d * sx) * sy);
+      }
+    }
+    for (let i = 0; i < N * N; i++) h[i] += (R() - 0.5) * 0.35;
+    const c = document.createElement('canvas'); c.width = c.height = N;
+    const g = c.getContext('2d'); const img = g.createImageData(N, N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const dx = h[y * N + (x + 1) % N] - h[y * N + (x + N - 1) % N];
+      const dy = h[((y + 1) % N) * N + x] - h[((y + N - 1) % N) * N + x];
+      const nx = -dx * 2.2, ny = -dy * 2.2, nz = 1, l = Math.hypot(nx, ny, nz);
+      const i = (y * N + x) * 4;
+      img.data[i] = (nx / l * 0.5 + 0.5) * 255; img.data[i + 1] = (ny / l * 0.5 + 0.5) * 255; img.data[i + 2] = (nz / l * 0.5 + 0.5) * 255; img.data[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    return t;
+  }
+
+  // бордюры и тротуар вдоль дороги — настоящий объём
+  addCurbs() {
+    const pts = [[-E, MAP.path[0][1]], ...MAP.path];
+    const curbM = new THREE.MeshStandardMaterial({ color: 0xc9c3b4, roughness: 0.85, envMapIntensity: 0.25 });
+    const walkM = new THREE.MeshStandardMaterial({ color: 0xb3ad9e, roughness: 0.92, envMapIntensity: 0.2 });
+    const group = new THREE.Group();
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+      const len = Math.hypot(bx - ax, by - ay), dx = (bx - ax) / len, dy = (by - ay) / len;
+      const nx = -dy, ny = dx;
+      const ang = Math.atan2(dx, dy);
+      for (const side of [-1, 1]) {
+        for (const [off, w, hgt, mat, ext] of [[0.535, 0.07, 0.055, curbM, 0.57], [0.62, 0.11, 0.035, walkM, 0.67]]) {
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, hgt, len + ext * 2), mat);
+          mesh.position.set((ax + bx) / 2 + nx * off * side, hgt / 2, (ay + by) / 2 + ny * off * side);
+          mesh.rotation.y = ang; mesh.receiveShadow = true; mesh.castShadow = mat === curbM;
+          group.add(mesh);
+        }
+      }
+    }
+    this.scene.add(group);
+  }
+
+  // кустики травы: тысячи маленьких пучков, под строениями прячутся
+  addGrass() {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    const g = c.getContext('2d'); const R = rng(5);
+    for (let i = 0; i < 26; i++) {
+      const x0 = 8 + R() * 48, lean = (R() - 0.5) * 18, hgt = 30 + R() * 30;
+      const gr = g.createLinearGradient(0, 64, 0, 64 - hgt); gr.addColorStop(0, '#3d6a24'); gr.addColorStop(1, R() < 0.3 ? '#b9b25a' : '#86b04c');
+      g.fillStyle = gr; g.beginPath(); g.moveTo(x0 - 2, 64); g.quadraticCurveTo(x0 + lean * 0.4, 64 - hgt * 0.6, x0 + lean, 64 - hgt); g.lineTo(x0 + 2, 64); g.fill();
+    }
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    const geo = new THREE.BufferGeometry();
+    const q = (a) => { const cx = Math.cos(a) * 0.5, cz = Math.sin(a) * 0.5; return [-cx, 0, -cz, cx, 0, cz, cx, 1, cz, -cx, 1, -cz]; };
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([...q(0), ...q(Math.PI / 2)], 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1], 2));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(8).fill([0, 1, 0]).flat(), 3));
+    geo.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
+    const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 1, envMapIntensity: 0.2 });
+    const segs = [];
+    const pts = [[-E, MAP.path[0][1]], ...MAP.path];
+    for (let i = 0; i < pts.length - 1; i++) segs.push([...pts[i], ...pts[i + 1]]);
+    const distRoad = (x, z) => {
+      let best = 1e9;
+      for (const [ax, ay, bx, by] of segs) {
+        const vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy;
+        const t = clamp(((x - ax) * vx + (z - ay) * vy) / l2, 0, 1);
+        best = Math.min(best, Math.hypot(x - ax - vx * t, z - ay - vy * t));
+      }
+      return best;
+    };
+    const blocked = (x, z) => {
+      if (distRoad(x, z) < 0.8) return true;
+      if (x > MAP.hq.x - 0.4 && x < MAP.hq.x + MAP.hq.w + 0.4 && z > MAP.hq.y - 0.4 && z < MAP.hq.y + MAP.hq.h + 0.4) return true;
+      for (const d of MAP.decor) if (d.kind !== 'tree' && x > d.x - 0.15 && x < d.x + (d.w || 1) + 0.15 && z > d.y - 0.15 && z < d.y + (d.h || 1) + 0.15) return true;
+      return false;
+    };
+    const COUNT = 3200;
+    const inst = new THREE.InstancedMesh(geo, mat, COUNT);
+    const m4 = new THREE.Matrix4(), qn = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), col = new THREE.Color();
+    this.grassTiles = new Map();
+    let n = 0, guard = 0;
+    while (n < COUNT && guard++ < COUNT * 6) {
+      const x = -1.5 + R() * (MAP.w + 3), z = -1.5 + R() * (MAP.h + 3);
+      if (blocked(x, z)) continue;
+      const s0 = 0.09 + R() * 0.1;
+      qn.setFromAxisAngle(new THREE.Vector3(0, 1, 0), R() * Math.PI);
+      inst.setMatrixAt(n, m4.compose(pos.set(x, 0, z), qn, sc.set(s0 * 1.4, s0, s0 * 1.4)));
+      inst.setColorAt(n, col.setHSL(0.24 + R() * 0.05, 0.45, 0.62 + R() * 0.25));
+      const key = Math.floor(z) * MAP.w + Math.floor(x);
+      if (!this.grassTiles.has(key)) this.grassTiles.set(key, []);
+      this.grassTiles.get(key).push([n, m4.clone()]);
+      n++;
+    }
+    inst.count = n;
+    inst.receiveShadow = true;
+    this.grass = inst;
+    this.scene.add(inst);
+  }
+  hideGrass(tx, ty, w = 1, h = 1, hide = true) {
+    if (!this.grass) return;
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (let y = ty; y < ty + h; y++) for (let x = tx; x < tx + w; x++) {
+      for (const [i, m] of this.grassTiles.get(y * MAP.w + x) || []) this.grass.setMatrixAt(i, hide ? zero : m);
+    }
+    this.grass.instanceMatrix.needsUpdate = true;
+  }
+
   addCity() {
     this.decor = [];
     let seed = 11;
-    const add = (o, x, z) => { o.position.set(x, 0, z); this.scene.add(o); return o; };
+    const add = (o, x, z) => { o.position.set(x, 0, z); tune(o); this.scene.add(o); return o; };
+    const asset = id => { const a = hasAsset(id) && instance(id, true); return a ? a.obj : null; };
+    const house = (w, h, floors, tone, sd) => {
+      const id = Math.max(w, h) / Math.min(w, h) >= 2 ? 'block_long' : floors >= 6 ? 'block9' : 'block5';
+      const o = asset(id);
+      if (o) { const W = w * 0.92, D = h * 0.92; fitBox(o, W, D, floors * 0.22); return o; }
+      return M.makeHouse(w, h, floors, tone, sd);
+    };
+    const tree = sd => asset(sd % 3 === 0 && hasAsset('tree_poplar') ? 'tree_poplar' : 'tree_plane') || M.makeTree(sd);
     for (const d of MAP.decor) {
-      if (d.kind === 'house') add(M.makeHouse(d.w, d.h, d.floors, d.tone, seed += 13), d.x + d.w / 2, d.y + d.h / 2);
-      else if (d.kind === 'tree') { const t = add(M.makeTree(seed += 5), d.x + 0.5, d.y + 0.5); t.rotation.y = seed; t.scale.setScalar(0.9 + (seed % 5) * 0.06); }
-      else if (d.kind === 'tvtower') this.tv = add(M.makeTvTower(), d.x + 0.5, d.y + 0.5);
+      if (d.kind === 'house') add(house(d.w, d.h, d.floors, d.tone, seed += 13), d.x + d.w / 2, d.y + d.h / 2);
+      else if (d.kind === 'tree') { const t = add(tree(seed += 5), d.x + 0.5, d.y + 0.5); t.rotation.y = seed; t.scale.multiplyScalar(0.9 + (seed % 5) * 0.06); }
+      else if (d.kind === 'tvtower') this.tv = add(asset('tvtower') || M.makeTvTower(), d.x + 0.5, d.y + 0.5);
     }
     // деревья и дома за краем поля — город продолжается
     const R = rng(3);
@@ -250,17 +448,30 @@ export class Renderer {
       else if (side === 1) { x = -E + R() * (MAP.w + E * 2); z = MAP.h + 0.6 + R() * 3; }
       else if (side === 2) { x = MAP.w + 0.6 + R() * 3; z = R() * MAP.h; }
       else { x = -0.6 - R() * 3; z = R() * MAP.h; if (Math.abs(z - MAP.path[0][1]) < 1.3) continue; }
-      if (R() < 0.75) { const t = add(M.makeTree(i), x, z); t.scale.setScalar(0.8 + R() * 0.5); }
-      else add(M.makeHouse(1 + (R() < 0.5), 1, 2 + (R() * 5 | 0), i % 3, i * 31), x, z);
+      const r1 = R(), r2 = R(), r3 = R();
+      if (r1 < 0.62) { const t = add(tree(i), x, z); t.scale.multiplyScalar(0.8 + r2 * 0.5); t.rotation.y = r3 * 6; }
+      else if (r1 < 0.72 && hasAsset('bush')) { const b = add(asset('bush'), x, z); b.rotation.y = r3 * 6; }
+      else { const w = 1 + (r2 < 0.5 ? 1 : 0); const hh = add(house(w, 1, 2 + (r3 * 5 | 0), i % 3, i * 31), x, z); hh.rotation.y = r2 < 0.5 ? 0 : Math.PI / 2; }
     }
-    // фонари и машины у дороги
+    // фонари, машины, киоски у дороги
     for (let i = 1; i < MAP.path.length - 1; i++) {
       const [x, y] = MAP.path[i];
-      const l = add(M.makeLamp(), x + 0.62, y - 0.62); l.rotation.y = Math.PI * 0.75;
+      const l = add(asset('lamp') || M.makeLamp(), x + 0.62, y - 0.62); l.rotation.y = Math.PI * 0.75;
     }
     const cars = [[2.5, 2.25, 0, 0xb83a2a], [9, 11.75, 0, 0xd6c79a], [12.75, 7.5, Math.PI / 2, 0x3d6a8f], [18.2, 10.75, 0, 0x6c7f4a]];
-    for (const [x, z, r, c] of cars) { const car = add(M.makeCar(c), x, z); car.rotation.y = r; }
-    this.beacon = add(M.makeBeacon(), MAP.spawn[0] - 0.9, MAP.spawn[1]);
+    cars.forEach(([x, z, r, c], i) => { const car = add(asset(i % 2 ? 'car_black' : 'car_white') || M.makeCar(c), x, z); car.rotation.y = r + Math.PI / 2; });
+    if (hasAsset('kiosk')) { add(asset('kiosk'), 4.6, 4.6).rotation.y = Math.PI; add(asset('kiosk'), 17.6, 3.4).rotation.y = -Math.PI / 2; }
+    const bx = MAP.spawn[0] - 0.9, bz = MAP.spawn[1];
+    const fx = M.makeBeacon();
+    if (hasAsset('beacon')) {
+      // своя модель маяка плюс наши кольца и кристалл поверх
+      add(asset('beacon'), bx, bz);
+      fx.children.slice(0, 2).forEach(c => (c.visible = false));
+      const top = this.scene.children[this.scene.children.length - 1].userData.top || 2.6;
+      fx.userData.crystal.position.y = top + 0.3;
+      fx.userData.rings.forEach((r, i) => (r.position.y = top * 0.45 + i * 0.32));
+    }
+    this.beacon = add(fx, bx, bz);
   }
 
   // ---------- камера ----------
@@ -271,6 +482,7 @@ export class Renderer {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.overlay.width = w * dpr; this.overlay.height = h * dpr;
     this.octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (this.composer) { this.composer.setPixelRatio(this.r.getPixelRatio()); this.composer.setSize(w, h); }
     this.fit();
   }
   fit() {
@@ -338,6 +550,53 @@ export class Renderer {
   // ---------- синхронизация со снимком ----------
   setPlayers(pl) { for (const p of pl) this.owners.set(p[0], p[2]); }
 
+  makeStructModel(kind, color) {
+    const baseId = hasAsset(kind) ? kind : hasAsset(kind + '_base') ? kind + '_base' : null;
+    if (!baseId) {
+      const obj = M.STRUCT_MAKERS[kind](new THREE.Color(color));
+      obj.scale.setScalar(kind === 'hq' ? 1.25 : 1.36);
+      return obj;
+    }
+    const root = new THREE.Group(), body = new THREE.Group();
+    root.add(body);
+    const base = instance(baseId).obj;
+    body.add(base);
+    let top = base.userData.top;
+    const u = root.userData;
+    u.body = body; u.asset = true;
+    if (hasAsset(kind + '_turret')) {
+      const tur = new THREE.Group(); tur.position.y = top * 0.9; body.add(tur);
+      const t = instance(kind + '_turret').obj; tur.add(t);
+      const ts = t.userData.size;
+      const mz = new THREE.Object3D(); mz.position.set(0, ts.y * 0.6, ts.z * 0.5); tur.add(mz);
+      u.turret = tur; u.muzzles = [mz];
+      top += t.userData.top * 0.9;
+    } else {
+      const mz = new THREE.Object3D(); mz.position.y = top * 0.93; body.add(mz); u.muzzles = [mz];
+    }
+    // цвет игрока — светящееся кольцо у основания
+    const r = kind === 'hq' ? 1.02 : 0.47;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.025, 6, 48), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.6, roughness: 0.5 }));
+    ring.rotation.x = Math.PI / 2; ring.position.y = 0.03; ring.userData.noTint = true; body.add(ring);
+    if (kind === 'razryadnik') {
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), new THREE.MeshStandardMaterial({ color: 0x0a1420, emissive: 0x58b8ff, emissiveIntensity: 1.5, transparent: true, opacity: 0.55, depthWrite: false }));
+      orb.position.y = top * 0.93; orb.userData.noTint = true; body.add(orb); u.orb = orb;
+    }
+    if (kind === 'plant') {
+      u.smoke = [-0.18, 0.18].map(z => { const o = new THREE.Object3D(); o.position.set(0.2, top * 0.95, z); body.add(o); return o; });
+      u.win = new THREE.MeshStandardMaterial({ emissive: 0xffc35a });
+    }
+    if (kind === 'hq') {
+      u.blink = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff2a2a, emissiveIntensity: 2 });
+      for (const [x, z] of [[-0.8, -0.8], [0.8, -0.7]]) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), u.blink); l.position.set(x, top * 0.98, z); l.userData.noTint = true; body.add(l); }
+    }
+    u.top = top;
+    const mats = new Set();
+    root.traverse(o => { if (o.isMesh && !o.userData.noTint) for (const m of [].concat(o.material)) if (m.isMeshStandardMaterial) mats.add(m); });
+    u.mats = [...mats].map(m => ({ m, e: m.emissive.clone(), ei: m.emissiveIntensity }));
+    return root;
+  }
+
   syncStructs(st, now) {
     const seen = new Set();
     for (const s of st) {
@@ -347,14 +606,16 @@ export class Renderer {
       const kind = STRUCT_KINDS[ki];
       if (!v) {
         const color = kind === 'hq' ? 0xc03028 : (this.owners.get(owner) || '#d8342c');
-        const obj = M.STRUCT_MAKERS[kind](new THREE.Color(color));
+        const obj = this.makeStructModel(kind, color);
         const cx = kind === 'hq' ? x + MAP.hq.w / 2 : x + 0.5, cz = kind === 'hq' ? y + MAP.hq.h / 2 : y + 0.5;
         obj.position.set(cx, 0, cz);
-        obj.scale.setScalar(kind === 'hq' ? 1.25 : 1.36);
-        obj.rotation.y = kind === 'plant' ? Math.PI / 2 : 0;
+        obj.rotation.y = kind === 'plant' && !obj.userData.asset ? Math.PI / 2 : obj.userData.asset ? Math.PI * 0.25 : 0;
+        tune(obj);
         this.scene.add(obj);
         v = { id, kind, obj, owner, x: cx, z: cz, aim: null, yaw: Math.PI * 0.25, lastShot: -9, born: now - ba * 1000, capturedFx: false, smokeT: 0 };
         if (ba < 1) this.buildDust(cx, cz, kind === 'hq' ? 1.2 : 0.6);
+        v.tile = [x, y, kind === 'hq' ? MAP.hq.w : 1, kind === 'hq' ? MAP.hq.h : 1];
+        this.hideGrass(...v.tile, true);
         this.structs.set(id, v);
       }
       v.hp = hp; v.rank = rank; v.captured = captured; v.drained = drained; v.owner = owner;
@@ -362,6 +623,7 @@ export class Renderer {
     for (const [id, v] of this.structs) {
       if (seen.has(id)) continue;
       this.structs.delete(id);
+      if (v.tile) this.hideGrass(...v.tile, false);
       if (this.selected === id) this.selected = null;
       if (v.sold) { v.sinkT = 0; this.dying.push(v); }
       else this.scene.remove(v.obj);
@@ -376,10 +638,25 @@ export class Renderer {
       let v = this.enemies.get(id);
       const kind = ENEMY_KINDS[ti];
       if (!v) {
-        const obj = M.ENEMY_MAKERS[kind]();
+        let obj, mixer = null, asset = false;
+        const inst = hasAsset(kind) && instance(kind);
+        if (inst) {
+          obj = new THREE.Group(); obj.add(inst.obj); mixer = inst.mixer; asset = true;
+          obj.userData.top = inst.obj.userData.top; obj.userData.bar = kind === 'brute' ? 34 : kind === 'disk' ? 30 : 24;
+          if (kind === 'psi') {
+            const halo = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.014, 6, 20), M.glow(0xc070ff, 2.4));
+            halo.rotation.x = Math.PI / 2; obj.userData.haloY = obj.userData.top + 0.06; obj.add(halo); obj.userData.halo = halo;
+          }
+          if (kind === 'disk') {
+            const d = M.makeDisk();
+            obj.userData.beam = d.userData.beam; obj.add(d.userData.beam);
+            obj.userData.lights = new THREE.Group(); obj.add(obj.userData.lights);
+          }
+        } else obj = M.ENEMY_MAKERS[kind]();
         obj.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
+        tune(obj);
         this.scene.add(obj);
-        v = { id, kind, obj, air: !!(flags & 1), off: laneOffset(id), prev: null, cur: null, phase: Math.random() * 6, x: 0, z: 0, heading: 0 };
+        v = { id, kind, obj, mixer, asset, air: !!(flags & 1), off: laneOffset(id), prev: null, cur: null, phase: Math.random() * 6, x: 0, z: 0, heading: 0 };
         this.enemies.set(id, v);
         if (kind === 'psi' || kind === 'brute') { const p0 = pathPos(a, v.off); this.ring(p0.x, 0.05, p0.y, kind === 'psi' ? 0xb46cff : 0x8cff5a, 1.2, 0.6); }
       }
@@ -675,10 +952,11 @@ export class Renderer {
             this.fxSmoke.add({ x: p.x, y: p.y, z: p.z, vx: 0.15 + Math.random() * 0.1, vy: 0.5, vz: (Math.random() - 0.5) * 0.1, drag: 0.3, life: 2.4, size: 0.18, size1: 0.6, c: COL.steam, alpha: 0.45, fadeIn: true });
           }
         }
-        u.win.emissiveIntensity = v.drained ? (Math.random() < 0.3 ? 0.1 : 0.6) : 1.2;
+        if (u.win) u.win.emissiveIntensity = v.drained ? (Math.random() < 0.3 ? 0.1 : 0.6) : 1.2;
         if (v.drained && Math.random() < dt * 8) this.fxAdd.add({ x: v.x + (Math.random() - 0.5) * 0.5, y: 0.3 + Math.random() * 0.4, z: v.z + (Math.random() - 0.5) * 0.5, vy: 0.8, life: 0.4, size: 0.1, c: COL.psi });
       }
-      if (u.dish && !v.ruined) { u.dish.rotation.y += dt * 0.9; u.blink.emissiveIntensity = (t % 1.2) < 0.15 ? 3 : 0.2; }
+      if (u.dish && !v.ruined) u.dish.rotation.y += dt * 0.9;
+      if (u.blink && !v.ruined) u.blink.emissiveIntensity = (t % 1.2) < 0.15 ? 3 : 0.2;
       // повреждённые строения дымят и горят
       if (v.hp < 0.55 || v.ruined) {
         const r = v.kind === 'hq' ? 0.9 : 0.35;
@@ -717,7 +995,8 @@ export class Renderer {
       o.rotation.y += dh * Math.min(1, dt * 10);
       o.position.set(p.x, p.y, p.z);
       const sc = v.scale || 1;
-      o.scale.setScalar(ENEMY_SCALE[v.kind] * (v.kind === 'brute' ? sc : 1));
+      o.scale.setScalar((v.asset ? 1 : ENEMY_SCALE[v.kind]) * (v.kind === 'brute' ? sc : 1));
+      if (v.mixer) v.mixer.update(dt * (v.kind === 'brute' ? 0.8 : v.kind === 'psi' ? 0.9 : 1.25));
       if (u.legs) {
         const sp = v.kind === 'brute' ? 7 : 12;
         u.legs.forEach((l, i) => (l.rotation.x = Math.sin(t * sp + v.phase + i * Math.PI) * 0.6));
@@ -738,7 +1017,7 @@ export class Renderer {
       }
       if (v.kind === 'psi') {
         u.halo.rotation.z += dt * 3;
-        u.halo.position.y = 0.52 + Math.sin(t * 3 + v.id) * 0.03;
+        u.halo.position.y = (u.haloY || 0.52) + Math.sin(t * 3 + v.id) * 0.03;
         if (v.captive) {
           const tw = this.structs.get(v.captive);
           if (tw && Math.random() < dt * 30) {
@@ -783,7 +1062,7 @@ export class Renderer {
       if (!this.ghostKind) this.rangeRing.visible = this.rangeFill.visible = false;
     }
 
-    this.r.render(this.scene, this.cam);
+    if (this.composer) this.composer.render(dt); else this.r.render(this.scene, this.cam);
     this.drawOverlay(dt, alpha);
   }
 
@@ -928,7 +1207,7 @@ export class Renderer {
   }
 
   // ---------- картинки для иконок строительства ----------
-  static renderCameos(kinds, team) {
+  static renderCameos(kinds, team, make) {
     const W = 240, H = 180;
     const r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     r.setSize(W, H, false); r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.15;
@@ -938,8 +1217,11 @@ export class Renderer {
       scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x3a4030, 1.1));
       const sun = new THREE.DirectionalLight(0xfff0d8, 2.6); sun.position.set(-3, 6, 2); scene.add(sun);
       const rim = new THREE.DirectionalLight(0x8fb8ff, 1.2); rim.position.set(3, 2, -4); scene.add(rim);
-      const m = M.STRUCT_MAKERS[kind](new THREE.Color(team));
-      if (kind === 'plant') m.rotation.y = Math.PI / 2;
+      const m = make ? make(kind, new THREE.Color(team)) : M.STRUCT_MAKERS[kind](new THREE.Color(team));
+      m.scale.setScalar(1);
+      if (kind === 'plant' && !m.userData.asset) m.rotation.y = Math.PI / 2;
+      if (m.userData.asset) m.rotation.y = Math.PI * 0.25;
+      tune(m);
       scene.add(m);
       const bb = new THREE.Box3().setFromObject(m);
       const c = bb.getCenter(new THREE.Vector3());

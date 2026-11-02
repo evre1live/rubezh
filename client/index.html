@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="fonts.css">
 <link rel="stylesheet" href="style.css">
 <!--INLINE_CSS-->
-<script type="importmap">{ "imports": { "three": "/vendor/three.module.js" } }</script>
+<script type="importmap">{ "imports": { "three": "/vendor/three.module.js", "three/addons/": "/vendor/addons/" } }</script>
 </head>
 <body>
 <div id="app">
@@ -130,6 +130,7 @@
       <label class="toggle"><input type="checkbox" id="opt-sfx" checked><span>Звуки</span></label>
       <label class="toggle"><input type="checkbox" id="opt-music" checked><span>Музыка</span></label>
       <label class="toggle"><input type="checkbox" id="opt-voice" checked><span>Голос штаба</span></label>
+      <label class="toggle select"><span>Графика</span><select id="opt-quality"><option value="high">Высокая</option><option value="medium">Средняя</option><option value="low">Низкая</option></select></label>
       <button class="btn ghost" id="btn-quit">Выйти в главное меню</button>
     </div>
   </section>

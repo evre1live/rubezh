@@ -3,6 +3,7 @@ import { Renderer } from './render.js';
 import { Sound } from './audio.js';
 import { LocalSession, RemoteSession } from './session.js';
 import { Game } from '../sim/game.js';
+import { loadAssets } from './assets.js';
 import { MAP, STRUCTS, BUILDABLE, RULES, STRUCT_KINDS, ENEMIES, WAVES, PLAYER_COLORS, pathTiles, decorTiles } from '../sim/data.js';
 
 const SOLO_ONLY = !!window.RUBEZH_SOLO;
@@ -77,7 +78,7 @@ function eva(text, cls = '') {
 function buildCameos(team) {
   if (cameoTeam === team) return;
   cameoTeam = team;
-  cameoImgs = Renderer.renderCameos(BUILDABLE, team);
+  cameoImgs = Renderer.renderCameos(BUILDABLE, team, (k, c) => R.makeStructModel(k, c));
   const wrap = $('cameos');
   wrap.innerHTML = '';
   BUILDABLE.forEach((kind, i) => {
@@ -283,6 +284,7 @@ $('btn-resume').addEventListener('click', () => togglePause(false));
 $('opt-sfx').addEventListener('change', e => sound.setSfx(e.target.checked));
 $('opt-music').addEventListener('change', e => sound.setMusic(e.target.checked));
 $('opt-voice').addEventListener('change', e => sound.setVoice(e.target.checked));
+$('opt-quality').addEventListener('change', e => { R.setQuality(e.target.value); try { localStorage.setItem('rubezh-quality', e.target.value); } catch {} });
 $('btn-quit').addEventListener('click', () => {
   togglePause(false);
   if (session && session.mp) session.raw({ type: 'leave' });
@@ -643,8 +645,15 @@ function checkRotate() { show('rotate', innerWidth < innerHeight && innerWidth <
 addEventListener('resize', () => { if (R) R.resize(); checkRotate(); });
 async function boot() {
   try { await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 1500))]); } catch {}
+  const lt = document.querySelector('.loading-text');
+  await loadAssets('assets/', (d, n) => { lt.textContent = `Загрузка моделей: ${d} из ${n}`; });
   R = new Renderer($('scene'), $('overlay'));
   R.onSound = n => sound.play(n);
+  let q = 'high';
+  try { q = localStorage.getItem('rubezh-quality') || 'high'; } catch {}
+  if (params.get('q')) q = params.get('q');
+  R.setQuality(q);
+  $('opt-quality').value = q;
   buildCameos(myColor);
   menuBackdrop();
   if (SOLO_ONLY) { show('mp-block', false); show('mp-note', true); }

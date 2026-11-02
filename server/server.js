@@ -15,13 +15,15 @@ const MAX_PLAYERS = 2;
 const ALLOW_SPEED = process.env.ALLOW_SPEED === '1';
 
 // ---------- раздача файлов ----------
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.glb': 'model/gltf-binary', '.webp': 'image/webp', '.jpg': 'image/jpeg' };
 const ROUTES = [
   ['/vendor/three.module.js', path.join(ROOT, 'node_modules/three/build/three.module.min.js')],
 ];
 function resolveFile(url) {
   const p = decodeURIComponent(url.split('?')[0]);
   for (const [r, f] of ROUTES) if (p === r) return f;
+  if (p.startsWith('/vendor/addons/')) return path.join(ROOT, 'node_modules/three/examples/jsm', path.normalize(p.slice(15)).replace(/^(\.\.[/\\])+/, ''));
+  if (p.startsWith('/assets/')) return path.join(ROOT, 'assets', path.normalize(p.slice(8)).replace(/^(\.\.[/\\])+/, ''));
   if (p.startsWith('/sim/')) return path.join(ROOT, 'sim', path.normalize(p.slice(5)).replace(/^(\.\.[/\\])+/, ''));
   const rel = p === '/' ? 'index.html' : path.normalize(p.slice(1)).replace(/^(\.\.[/\\])+/, '');
   return path.join(ROOT, 'client', rel);
@@ -30,7 +32,7 @@ const gzCache = new Map();
 const server = http.createServer((req, res) => {
   if (req.url === '/health') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('ok'); return; }
   const file = resolveFile(req.url);
-  if (!file.startsWith(ROOT)) { res.writeHead(403); res.end(); return; }
+  if (!file.startsWith(ROOT) || (file.includes('node_modules') && !file.includes(path.join('node_modules', 'three')))) { res.writeHead(403); res.end(); return; }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); res.end('not found'); return; }
     const ext = path.extname(file);
